@@ -21,24 +21,12 @@ import (
 // @title Extended Flow Management System API
 // @version 1.0
 // @description API for managing connectors and executing flows step-by-step.
-// @termsOfService http://swagger.io/terms/
-
-// @contact.name API Support
-// @contact.url http://www.swagger.io/support
-// @contact.email support@swagger.io
-
-// @license.name Apache 2.0
-// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
-
 // @host localhost:8080
 // @BasePath /api/v1
 
 func main() {
-	// 1. Intentar cargar .env desde el directorio actual
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env found in current directory, checking executable directory...")
-
-		// 2. Si falla, intentar cargar desde el directorio del binario
 		ex, err := os.Executable()
 		if err == nil {
 			exPath := filepath.Dir(ex)
@@ -60,14 +48,12 @@ func main() {
 
 	SeedDatabase(database)
 
-	// Initialize Services
 	connHandler := handler.NewConnectorHandler(database)
 	stepValidator := service.NewStepValidator()
 	subscriptionClient := service.NewSubscriptionClientFromEnv()
 	connectorService := service.NewConnectorService(database)
 	flowManager := service.NewFlowManager(database, stepValidator, subscriptionClient, connectorService)
 
-	// AI Service
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		log.Println("Warning: OPENAI_API_KEY not set. AI features will fail.")
@@ -78,8 +64,6 @@ func main() {
 	aiHandler := handler.NewAIHandler(aiService)
 
 	r := gin.Default()
-
-	// CORS for all domains and headers
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
 	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
@@ -87,31 +71,25 @@ func main() {
 
 	api := r.Group("/api/v1")
 	{
-		// Connector Routes
 		api.POST("/connectors", connHandler.CreateConnector)
 		api.GET("/connectors", connHandler.ListConnectors)
 		api.POST("/connectors/config", connHandler.CreateConfig)
 
-		// Flow Management
 		api.POST("/flows", flowHandler.CreateFlow)
 		api.GET("/flows", flowHandler.ListFlows)
 
-		// Flow Execution Routes
 		api.POST("/flows/:id/start", flowHandler.StartFlow)
 		api.GET("/executions/:uuid/step", flowHandler.GetCurrentStep)
 		api.POST("/executions/:uuid/step", flowHandler.SubmitStep)
 
-		// Execution Management Routes
 		api.GET("/executions/:uuid", flowHandler.GetExecution)
 		api.POST("/executions/:uuid/retry", flowHandler.RetryExecution)
 
-		// AI Processing
 		api.POST("/ai/generate", aiHandler.GenerateFlow)
 		api.POST("/ai/signature-analysis", aiHandler.AnalyzeSignature)
 		api.POST("/ai/liveness-luxand", aiHandler.LivenessLuxand)
 	}
 
-	// Configurar Swagger
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	port := os.Getenv("PORT")
@@ -128,28 +106,31 @@ func SeedDatabase(database *gorm.DB) {
 	if notifyURL == "" {
 		notifyURL = "http://host.docker.internal:8081"
 	}
-
 	pdfURL := os.Getenv("PDF_SERVICE_URL")
 	if pdfURL == "" {
 		pdfURL = "http://host.docker.internal:8082"
+	}
+	apisixURL := os.Getenv("APISIX_URL")
+	if apisixURL == "" {
+		apisixURL = "http://34.217.51.225:9080"
 	}
 
 	notifyApiURL := notifyURL + "/api/v1"
 	pdfApiURL := pdfURL + "/api/v1"
 
-	// Upsert de todos los Conectores (Asegurando AuthType: "NONE")
 	connectors := []domain.Connector{
 		{ID: 1, Name: "OTP Generator", Type: "REST", BaseURL: notifyApiURL, AuthType: "NONE"},
 		{ID: 2, Name: "WhatsApp Notify", Type: "REST", BaseURL: notifyApiURL, AuthType: "NONE"},
 		{ID: 3, Name: "OTP Extractor", Type: "REST", BaseURL: notifyApiURL, AuthType: "NONE"},
 		{ID: 4, Name: "OTP Validator", Type: "REST", BaseURL: notifyApiURL, AuthType: "NONE"},
 		{ID: 5, Name: "PDF Generator", Type: "REST", BaseURL: pdfApiURL, AuthType: "NONE"},
-		{ID: 96, Name: "Firmador", Type: "REST", BaseURL: "https://front.primecore.online/signer", AuthType: "NONE"},
-		{ID: 97, Name: "RA Certificados", Type: "REST", BaseURL: "https://front.primecore.online/ra", AuthType: "NONE"},
-		{ID: 98, Name: "Biometria", Type: "REST", BaseURL: "https://front.primecore.online/biometria", AuthType: "NONE"},
-		{ID: 99, Name: "Registro Civil", Type: "REST", BaseURL: "https://front.primecore.online/reg-civil", AuthType: "NONE"},
-		{ID: 102, Name: "Archivos Primecore", Type: "REST", BaseURL: "https://files.primecore.online", AuthType: "NONE"},
-		{ID: 103, Name: "AI Services Local", Type: "REST", BaseURL: "http://localhost:8080/api/v1", AuthType: "NONE"},
+		{ID: 96, Name: "Firmador", Type: "REST", BaseURL: apisixURL + "/signer", AuthType: "NONE"},
+		{ID: 97, Name: "RA Certificados", Type: "REST", BaseURL: apisixURL + "/ra", AuthType: "NONE"},
+		{ID: 98, Name: "Biometria", Type: "REST", BaseURL: apisixURL + "/biometria", AuthType: "NONE"},
+		{ID: 99, Name: "Registro Civil", Type: "REST", BaseURL: apisixURL + "/reg-civil", AuthType: "NONE"},
+		{ID: 102, Name: "Archivos Primecore", Type: "REST", BaseURL: apisixURL + "/files", AuthType: "NONE"},
+		{ID: 103, Name: "AI Services Local", Type: "REST", BaseURL: "http://ai_service:8080/api", AuthType: "NONE"},
+		{ID: 104, Name: "Payment Service", Type: "REST", BaseURL: "http://payment_service:8080", AuthType: "NONE"},
 	}
 
 	for _, c := range connectors {
@@ -158,7 +139,6 @@ func SeedDatabase(database *gorm.DB) {
 
 	var count int64
 	database.Model(&domain.Flow{}).Where("id = ?", 1).Count(&count)
-
 	if count == 0 {
 		flow1Definition := `{
 			"start_step": "create_otp",
@@ -171,7 +151,6 @@ func SeedDatabase(database *gorm.DB) {
 				"final_message": { "id": "final_message", "type": "ACTION", "connector_id": 2, "config": {"route": "/notify"}, "input_mapping": { "type": "whatsapp", "recipient": "{{global.phone_number}}", "body": "✅ ¡Felicidades! Verificación exitosa." } }
 			}
 		}`
-
 		flow1 := domain.Flow{
 			ID:          1,
 			Name:        "WhatsApp OTP Verification",
@@ -181,34 +160,50 @@ func SeedDatabase(database *gorm.DB) {
 		database.Save(&flow1)
 	}
 
+	// FLUJO 2: CERTIFICADOS FRONTEND
 	flow2Definition := `{
   "name": "Flujo de Emisión de Certificados",
-  "start_step": "solicitar_pago",
+  "start_step": "solicitar_pago_form",
   "steps": {
-    "solicitar_pago": { "id": "solicitar_pago", "type": "FORM", "description": "Simulación de Pago", "schema": { "type": "object", "properties": { "voucher": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "solicitar_datos" } ] },
-    "solicitar_datos": { "id": "solicitar_datos", "type": "FORM", "description": "Ingreso de Cédula, RUC y Contacto", "schema": { "type": "object", "properties": { "cedula": { "type": "string" }, "codigo_dactilar": { "type": "string" }, "ruc": { "type": "string" }, "telefono": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "consultar_registro_civil" } ] },
-    "consultar_registro_civil": { "id": "consultar_registro_civil", "type": "ACTION", "connector_id": 99, "config": { "route": "/consulta", "method": "GET" }, "input_mapping": { "nui": "{{input.cedula}}", "dactilar": "{{input.codigo_dactilar}}" }, "transitions": [ { "condition": "{{output._status_code}} < 400", "next_step": "crear_ficha_pdf" }, { "condition": "{{output._status_code}} >= 400", "next_step": "solicitar_datos" } ] },
-    "crear_ficha_pdf": { "id": "crear_ficha_pdf", "type": "ACTION", "connector_id": 5, "config": { "route": "/convert", "method": "POST" }, "input_mapping": { "filename": "ficha.pdf", "file_type": "html", "content": "PGh0bWw+PGJvZHk+PGI+RmljaGEgZGUgQ2xpZW50ZTwvYj48YnI+PGI+UnVjPC9iPiB7e2lucHV0LnJ1Y319PGJyPjxiPlRlbGVmb25vOjwvYj4ge3tpbnB1dC50ZWxlZm9ub319PGJyPjxwIHN0eWxlPSJjb2xvcjp3aGl0ZSI+ZmlybWFfY2xpZW50ZTwvcD48L2JvZHk+PC9odG1sPg==" }, "transitions": [ { "condition": "{{output._status_code}} < 400", "next_step": "crear_contrato_pdf" } ] },
-    "crear_contrato_pdf": { "id": "crear_contrato_pdf", "type": "ACTION", "connector_id": 5, "config": { "route": "/convert", "method": "POST" }, "input_mapping": { "filename": "contrato.pdf", "file_type": "html", "content": "PGh0bWw+PGJvZHk+PGI+Q29udHJhdG8gZGUgU2VydmljaW9zPC9iPjxicj48Yj5SdWNDPC9iPiB7e2lucHV0LnJ1Y319PGJyPjxwIHN0eWxlPSJjb2xvcjp3aGl0ZSI+ZmlybWFfY2xpZW50ZTwvcD48L2JvZHk+PC9odG1sPg==" }, "transitions": [ { "condition": "{{output._status_code}} < 400", "next_step": "solicitar_firma" } ] },
-    "solicitar_firma": { "id": "solicitar_firma", "type": "FORM", "description": "Carga de Firma Manuscrita", "schema": { "type": "object", "properties": { "firma_b64": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "validar_firma_ia" } ] },
-    "validar_firma_ia": { "id": "validar_firma_ia", "type": "ACTION", "connector_id": 103, "config": { "route": "/ai/signature-analysis", "method": "POST" }, "input_mapping": { "capturedImage": "{{input.firma_b64}}", "referenceImage": "{{output.consultar_registro_civil.foto_url}}" }, "transitions": [ { "condition": "{{output.overallStatus}} == \"verified\"", "next_step": "solicitar_biometria" }, { "condition": "{{output.overallStatus}} != \"verified\"", "next_step": "solicitar_firma" } ] },
-    "solicitar_biometria": { "id": "solicitar_biometria", "type": "FORM", "description": "Carga de Selfie", "schema": { "type": "object", "properties": { "foto_b64": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "validar_liveness_luxand" } ] },
-    "validar_liveness_luxand": { "id": "validar_liveness_luxand", "type": "ACTION", "connector_id": 103, "config": { "route": "/ai/liveness-luxand", "method": "POST" }, "input_mapping": { "image": "{{input.foto_b64}}" }, "transitions": [ { "condition": "{{output.status}} == \"success\"", "next_step": "verificar_biometria" }, { "condition": "{{output.status}} != \"success\"", "next_step": "solicitar_biometria" } ] },
-    "verificar_biometria": { "id": "verificar_biometria", "type": "ACTION", "connector_id": 98, "config": { "route": "/api/biometrics/demo_validation_service", "method": "POST" }, "input_mapping": { "uuidProceso": "{{global.transaction_id}}", "cedulaFrontalBase64": "{{output.consultar_registro_civil.foto_url}}", "rostroPersonaBase64": "{{input.foto_b64}}" }, "transitions": [ { "condition": "{{output._status_code}} < 400", "next_step": "solicitar_contrasena" }, { "condition": "{{output._status_code}} >= 400", "next_step": "solicitar_biometria" } ] },
+    "solicitar_pago_form": { "id": "solicitar_pago_form", "type": "FORM", "description": "Formulario de Pago", "schema": { "type": "object", "properties": { "metodo_pago": { "type": "string" }, "cliente_id": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "procesar_pago_api" } ] },
+    "procesar_pago_api": { "id": "procesar_pago_api", "type": "ACTION", "connector_id": 104, "config": { "route": "/v1/payments", "method": "POST" }, "input_mapping": { "amount": 10.50, "currency": "USD", "client_id": "{{input.cliente_id}}", "reference_id": "{{global.transaction_id}}", "method": "{{input.metodo_pago}}", "metadata": "{}" }, "transitions": [ { "condition": "{{output._status_code}} < 400", "next_step": "solicitar_datos" }, { "condition": "{{output._status_code}} >= 400", "next_step": "solicitar_pago_form" } ] },
+    "solicitar_datos": { "id": "solicitar_datos", "type": "FORM", "description": "Ingreso de Cédula, Dactilar, Teléfono, Correo", "schema": { "type": "object", "properties": { "cedula": { "type": "string" }, "codigo_dactilar": { "type": "string" }, "telefono": { "type": "string" }, "correo": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "solicitar_biometria" } ] },
+    "solicitar_biometria": { "id": "solicitar_biometria", "type": "FORM", "description": "Carga de Cédula Frontal, Reverso y Selfie", "schema": { "type": "object", "properties": { "cedula_frontal_b64": { "type": "string" }, "cedula_reverso_b64": { "type": "string" }, "selfie_b64": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "verificar_biometria" } ] },
+    "verificar_biometria": { "id": "verificar_biometria", "type": "ACTION", "connector_id": 98, "config": { "route": "/api/biometrics/demo_validation_extended", "method": "POST" }, "input_mapping": { "uuidProceso": "{{global.transaction_id}}", "cedulaFrontalBase64": "data:image/jpeg;base64,{{input.cedula_frontal_b64}}", "rostroPersonaBase64": "data:image/jpeg;base64,{{input.selfie_b64}}" }, "transitions": [ { "condition": "{{output.status}} == true", "next_step": "solicitar_contrasena" }, { "condition": "{{output.status}} == false", "next_step": "solicitar_biometria" } ] },
     "solicitar_contrasena": { "id": "solicitar_contrasena", "type": "FORM", "schema": { "type": "object", "properties": { "password": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "crear_certificado" } ] },
-    "crear_certificado": { "id": "crear_certificado", "type": "ACTION", "connector_id": 97, "config": { "route": "/certificados/crea/normal", "method": "POST" }, "input_mapping": { "perfil": "012", "alias": "{{global.transaction_id}}", "pass": "{{input.password}}", "cedulaPasaporte": "{{output.consultar_registro_civil.nui}}", "nombres": "{{output.consultar_registro_civil.nombres}}", "apellido1": "{{output.consultar_registro_civil.apellidos}}", "apellido2": ".", "direccion": ".", "telefono": "{{steps.solicitar_datos.telefono}}", "ciudad": "QUITO", "pais": "EC", "politica": true, "servidor": 3, "email": "{{global.email}}" }, "transitions": [ { "condition": "{{output._status_code}} < 400", "next_step": "descargar_certificado_p12" }, { "condition": "{{output._status_code}} >= 400", "next_step": "solicitar_contrasena" } ] },
-    "descargar_certificado_p12": { "id": "descargar_certificado_p12", "type": "ACTION", "connector_id": 102, "config": { "route": "/documentos/base64/normal/{{output.crear_certificado.data}}", "method": "GET" }, "transitions": [ { "condition": "true", "next_step": "firmar_documentos" } ] },
-    "firmar_documentos": { "id": "firmar_documentos", "type": "ACTION", "connector_id": 96, "config": { "route": "/api/v1/sign/pdf", "method": "POST" }, "input_mapping": { "base64Pdf": "{{output.crear_ficha_pdf.base64_data}}", "base64P12": "{{output.descargar_certificado_p12.archivo}}", "password": "{{input.password}}", "typeSignature": "QR", "textMarker": "firma_cliente" }, "transitions": [ { "condition": "{{output._status_code}} < 400", "next_step": "enviar_correo" }, { "condition": "{{output._status_code}} >= 400", "next_step": "solicitar_contrasena" } ] },
-    "enviar_correo": { "id": "enviar_correo", "type": "ACTION", "connector_id": 2, "config": { "route": "/notify", "method": "POST" }, "input_mapping": { "to": "{{global.email}}", "pdf": "{{output.firmar_documentos.signed_pdf}}" } }
+    "crear_certificado": { "id": "crear_certificado", "type": "ACTION", "connector_id": 97, "config": { "route": "/certificados/crea/normal", "method": "POST" }, "input_mapping": { "perfil": "012", "alias": "{{global.transaction_id}}", "pass": "{{input.password}}", "cedulaPasaporte": "{{steps.solicitar_datos.cedula}}", "nombres": "USUARIO", "apellido1": "FCE1", "apellido2": ".", "direccion": ".", "telefono": "{{steps.solicitar_datos.telefono}}", "ciudad": "QUITO", "pais": "EC", "politica": true, "servidor": 3, "email": "{{steps.solicitar_datos.correo}}" }, "transitions": [ { "condition": "{{output._status_code}} < 400", "next_step": "descargar_certificado_p12" }, { "condition": "{{output._status_code}} >= 400", "next_step": "solicitar_contrasena" } ] },
+    "descargar_certificado_p12": { "id": "descargar_certificado_p12", "type": "ACTION", "connector_id": 102, "config": { "route": "/documentos/base64/normal/{{output.crear_certificado.data}}", "method": "GET" }, "transitions": [ { "condition": "true", "next_step": "finalizado_fce1" } ] },
+    "finalizado_fce1": { "id": "finalizado_fce1", "type": "FORM", "description": "Certificado Generado Exitosamente", "schema": { "type": "object", "properties": {} } }
   }
 }`
-
 	flow2 := domain.Flow{
 		ID:          2,
 		Name:        "Flujo de Emisión de Certificados",
-		Description: "Flujo E2E validado en Produccion",
+		Description: "Recolección de datos, Pagos, Biometría Cédula-Rostro y Emisión",
 		Definition:  []byte(flow2Definition),
 	}
-	database.Save(&flow2) // Upsert del flujo 2
+	database.Save(&flow2)
+
+	// FLUJO 3: ONBOARDING FIRMAS FRONTEND
+	flow3Definition := `{
+  "name": "Flujo de Onboarding Firmas",
+  "start_step": "solicitar_cedula_fo1",
+  "steps": {
+    "solicitar_cedula_fo1": { "id": "solicitar_cedula_fo1", "type": "FORM", "description": "Ingreso de Cédula y Dactilar para Validar Firma", "schema": { "type": "object", "properties": { "cedula": { "type": "string" }, "codigo_dactilar": { "type": "string" }, "telefono": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "consultar_rc_firmas" } ] },
+    "consultar_rc_firmas": { "id": "consultar_rc_firmas", "type": "ACTION", "connector_id": 99, "config": { "route": "/consulta", "method": "GET" }, "input_mapping": { "nui": "{{input.cedula}}", "dactilar": "{{input.codigo_dactilar}}" }, "transitions": [ { "condition": "{{output._status_code}} < 400", "next_step": "descargar_firma_rc" }, { "condition": "{{output._status_code}} >= 400", "next_step": "solicitar_cedula_fo1" } ] },
+    "descargar_firma_rc": { "id": "descargar_firma_rc", "type": "ACTION", "connector_id": 102, "config": { "route": "/documentos/base64/registro_civil/{{steps.solicitar_cedula_fo1.cedula}}_firma", "method": "GET" }, "transitions": [ { "condition": "true", "next_step": "solicitar_captura_firma" } ] },
+    "solicitar_captura_firma": { "id": "solicitar_captura_firma", "type": "FORM", "description": "Sube una foto de tu firma manuscrita", "schema": { "type": "object", "properties": { "firma_b64": { "type": "string" } } }, "transitions": [ { "condition": "true", "next_step": "validar_firma_ia" } ] },
+    "validar_firma_ia": { "id": "validar_firma_ia", "type": "ACTION", "connector_id": 103, "config": { "route": "/signature-analysis", "method": "POST" }, "input_mapping": { "capturedImage": "data:image/jpeg;base64,{{input.firma_b64}}", "referenceImage": "data:image/jpeg;base64,{{steps.descargar_firma_rc.archivo}}" }, "transitions": [ { "condition": "{{output.overallStatus}} == \"verified\"", "next_step": "finalizado_fo1" }, { "condition": "{{output.overallStatus}} != \"verified\"", "next_step": "solicitar_captura_firma" } ] },
+    "finalizado_fo1": { "id": "finalizado_fo1", "type": "FORM", "description": "Firma Validada Exitosamente", "schema": { "type": "object", "properties": {} } }
+  }
+}`
+	flow3 := domain.Flow{
+		ID:          3,
+		Name:        "Flujo de Onboarding Firmas",
+		Description: "Validación de Foto de Firma contra Registro Civil",
+		Definition:  []byte(flow3Definition),
+	}
+	database.Save(&flow3)
+
 	log.Println("Database seeding completed.")
 }
